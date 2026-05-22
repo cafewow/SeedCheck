@@ -1,0 +1,7 @@
+package-as: SeedCheck
+
+ignore:
+  - .github
+  - .pkgmeta
+  - README.md
+  - LICENSE
