@@ -1,0 +1,8 @@
+## Interface: 11507
+## Title: SeedCheck
+## Notes: Tells warlocks when consecration has ticked enough to safely Seed.
+## Author: you
+## Version: 0.1
+## SavedVariables: SeedCheckDB
+
+SeedCheck.lua
