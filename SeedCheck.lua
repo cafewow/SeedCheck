@@ -29,6 +29,9 @@ local defaults = {
     locked = true,
     sound = "default",
     callOutEarlySeed = true,
+    enableSound = true,
+    enableAnnounceText = true,
+    groupByName = true,
 }
 
 local SOUNDS = {
@@ -122,15 +125,19 @@ end
 -- Custom announce frame (forward-declared; built below)
 local announceFrame, announceFS, announceAnim
 local function announce(msg)
-    if announceFS then
-        announceFS:SetText(msg)
-        announceFrame:Show()
-        announceFrame:SetAlpha(1)
-        if announceAnim then announceAnim:Stop(); announceAnim:Play() end
-    else
-        DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99[SeedCheck]|r "..msg)
+    if SeedCheckDB.enableAnnounceText ~= false then
+        if announceFS then
+            announceFS:SetText(msg)
+            announceFrame:Show()
+            announceFrame:SetAlpha(1)
+            if announceAnim then announceAnim:Stop(); announceAnim:Play() end
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99[SeedCheck]|r "..msg)
+        end
     end
-    playSelectedSound()
+    if SeedCheckDB.enableSound ~= false then
+        playSelectedSound()
+    end
 end
 
 -- forward decls for UI funcs
@@ -307,18 +314,52 @@ UI_Refresh = function()
     end
     local threshold = getThreshold()
     local n = 0
-    for i, guid in ipairs(mobOrder) do
-        local name = engagedMobs[guid] or "?"
-        local cur = tickCount[guid] or 0
-        local fs = getRow(i)
-        fs:SetText(("%s  %d/%d"):format(name, cur, threshold))
-        if cur >= threshold then
-            fs:SetTextColor(0.2, 1.0, 0.2)
-        else
-            fs:SetTextColor(1.0, 0.82, 0.0)
+
+    if SeedCheckDB and SeedCheckDB.groupByName ~= false then
+        -- Group by name: one row per unique name, show min tick count and (count)
+        local order, groups = {}, {} -- order: array of names; groups[name] = { count, minTick }
+        for _, guid in ipairs(mobOrder) do
+            local name = engagedMobs[guid] or "?"
+            local cur = tickCount[guid] or 0
+            local g = groups[name]
+            if not g then
+                g = { count = 0, minTick = cur }
+                groups[name] = g
+                order[#order+1] = name
+            end
+            g.count = g.count + 1
+            if cur < g.minTick then g.minTick = cur end
         end
-        n = i
+        for i, name in ipairs(order) do
+            local g = groups[name]
+            local fs = getRow(i)
+            if g.count > 1 then
+                fs:SetText(("%s (%d)  %d/%d"):format(name, g.count, g.minTick, threshold))
+            else
+                fs:SetText(("%s  %d/%d"):format(name, g.minTick, threshold))
+            end
+            if g.minTick >= threshold then
+                fs:SetTextColor(0.2, 1.0, 0.2)
+            else
+                fs:SetTextColor(1.0, 0.82, 0.0)
+            end
+            n = i
+        end
+    else
+        for i, guid in ipairs(mobOrder) do
+            local name = engagedMobs[guid] or "?"
+            local cur = tickCount[guid] or 0
+            local fs = getRow(i)
+            fs:SetText(("%s  %d/%d"):format(name, cur, threshold))
+            if cur >= threshold then
+                fs:SetTextColor(0.2, 1.0, 0.2)
+            else
+                fs:SetTextColor(1.0, 0.82, 0.0)
+            end
+            n = i
+        end
     end
+
     for i = n + 1, #rows do rows[i]:SetText("") end
     ui:SetHeight(20 + n * 16)
 end
@@ -478,17 +519,26 @@ local function buildOptionsPanel()
         end
     end)
 
-    local cb = CreateFrame("CheckButton", "SeedCheckCallOutCB", panel, "InterfaceOptionsCheckButtonTemplate")
-    cb:SetPoint("TOPLEFT", 16, -225)
-    cb.Text:SetText("Announce in raid chat if a warlock casts Seed early")
-    cb:SetChecked(SeedCheckDB.callOutEarlySeed ~= false)
-    cb:SetScript("OnClick", function(self)
-        SeedCheckDB.callOutEarlySeed = self:GetChecked() and true or false
-    end)
+    local function makeCheckbox(name, key, label, y)
+        local cb = CreateFrame("CheckButton", "SeedCheck"..name.."CB", panel, "InterfaceOptionsCheckButtonTemplate")
+        cb:SetPoint("TOPLEFT", 16, y)
+        cb.Text:SetText(label)
+        cb:SetChecked(SeedCheckDB[key] ~= false)
+        cb:SetScript("OnClick", function(self)
+            SeedCheckDB[key] = self:GetChecked() and true or false
+        end)
+        return cb
+    end
+
+    makeCheckbox("AnnounceText", "enableAnnounceText", "Show on-screen announcement",          -225)
+    makeCheckbox("Sound",        "enableSound",        "Play announcement sound",              -250)
+    makeCheckbox("CallOut",      "callOutEarlySeed",   "Announce in raid chat if a warlock casts Seed early", -275)
+    local groupCB = makeCheckbox("Group", "groupByName", "Group mobs by name in list",         -300)
+    groupCB:HookScript("OnClick", function() UI_Refresh() end)
 
     local unlockBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     unlockBtn:SetSize(140, 22)
-    unlockBtn:SetPoint("TOPLEFT", 16, -260)
+    unlockBtn:SetPoint("TOPLEFT", 16, -335)
     local function refreshBtn()
         unlockBtn:SetText(SeedCheckDB.locked and "Unlock frames" or "Lock frames")
     end
