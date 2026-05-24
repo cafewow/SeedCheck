@@ -1,4 +1,4 @@
-## Interface: 11507
+## Interface: 20505
 ## Title: SeedCheck
 ## Notes: Tells warlocks when consecration has ticked enough to safely Seed.
 ## Author: you
