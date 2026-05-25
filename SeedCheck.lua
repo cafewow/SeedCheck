@@ -14,7 +14,7 @@ local calledOutSeed  = {}   -- [warlockGUID] = true, suppress duplicate callouts
 local pendingCallout = {}   -- [warlockGUID] = name, we plan to send unless preempted
 
 local COMM_PREFIX = "SeedCheck"
-local tickCount      = {}   -- [guid] = N
+local tickCount      = {}   -- [mobGUID] = { [pallyGUID] = N }; effective ticks = max across pallies
 local mobsReady      = 0    -- count of engaged mobs that have hit threshold
 local mobsTotal      = 0    -- size of engagedMobs
 local announced      = false
@@ -143,6 +143,16 @@ end
 -- forward decls for UI funcs
 local UI_Refresh, UI_Show, UI_Hide
 
+local function effectiveTicks(mobGUID)
+    local perPally = tickCount[mobGUID]
+    if not perPally then return 0 end
+    local best = 0
+    for _, n in pairs(perPally) do
+        if n > best then best = n end
+    end
+    return best
+end
+
 local function resetPull()
     wipe(engagedMobs)
     wipe(mobOrder)
@@ -164,7 +174,7 @@ local function markEngaged(guid, name)
     engagedMobs[guid] = name or UNKNOWN or "Unknown"
     table.insert(mobOrder, guid)
     mobsTotal = mobsTotal + 1
-    tickCount[guid] = tickCount[guid] or 0
+    tickCount[guid] = tickCount[guid] or {}
     if UI_Refresh then UI_Refresh() end
 end
 
@@ -194,7 +204,7 @@ local function onCLEU(_, event, _, sourceGUID, sourceName, sourceFlags, _, destG
         if engagedMobs[destGUID] then
             engagedMobs[destGUID] = nil
             mobsTotal = mobsTotal - 1
-            if tickCount[destGUID] and tickCount[destGUID] >= getThreshold() then
+            if effectiveTicks(destGUID) >= getThreshold() then
                 mobsReady = mobsReady - 1
             end
             tickCount[destGUID] = nil
@@ -256,15 +266,19 @@ local function onCLEU(_, event, _, sourceGUID, sourceName, sourceFlags, _, destG
         local spellId, spellName = ...
         if spellName == CONSECRATION and engagedMobs[destGUID] then
             local threshold = getThreshold()
-            local cur = tickCount[destGUID] or 0
-            if cur < threshold then
-                cur = cur + 1
-                tickCount[destGUID] = cur
-                if cur == threshold then
-                    mobsReady = mobsReady + 1
-                    checkAnnounce()
+            local perPally = tickCount[destGUID]
+            if perPally then
+                local before = effectiveTicks(destGUID)
+                local prev = perPally[sourceGUID] or 0
+                if prev < threshold then
+                    perPally[sourceGUID] = prev + 1
+                    local after = effectiveTicks(destGUID)
+                    if before < threshold and after >= threshold then
+                        mobsReady = mobsReady + 1
+                        checkAnnounce()
+                    end
+                    if UI_Refresh then UI_Refresh() end
                 end
-                if UI_Refresh then UI_Refresh() end
             end
         end
     end
@@ -320,7 +334,7 @@ UI_Refresh = function()
         local order, groups = {}, {} -- order: array of names; groups[name] = { count, minTick }
         for _, guid in ipairs(mobOrder) do
             local name = engagedMobs[guid] or "?"
-            local cur = tickCount[guid] or 0
+            local cur = effectiveTicks(guid)
             local g = groups[name]
             if not g then
                 g = { count = 0, minTick = cur }
@@ -348,7 +362,7 @@ UI_Refresh = function()
     else
         for i, guid in ipairs(mobOrder) do
             local name = engagedMobs[guid] or "?"
-            local cur = tickCount[guid] or 0
+            local cur = effectiveTicks(guid)
             local fs = getRow(i)
             fs:SetText(("%s  %d/%d"):format(name, cur, threshold))
             if cur >= threshold then
@@ -641,8 +655,8 @@ SlashCmdList["SEEDCHECK"] = function(msg)
         -- Drop in two fake mobs so you can position the frame
         markEngaged("Creature-0-0-0-0-00001-0000000001", "Dummy A")
         markEngaged("Creature-0-0-0-0-00001-0000000002", "Dummy B")
-        tickCount["Creature-0-0-0-0-00001-0000000001"] = getThreshold()
-        tickCount["Creature-0-0-0-0-00001-0000000002"] = math.max(0, getThreshold() - 1)
+        tickCount["Creature-0-0-0-0-00001-0000000001"] = { dummy = getThreshold() }
+        tickCount["Creature-0-0-0-0-00001-0000000002"] = { dummy = math.max(0, getThreshold() - 1) }
         UI_Show(); UI_Refresh()
     elseif msg == "hide" then
         resetPull(); UI_Hide()
